@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+tensorflow
+tensorflow-hub
+tensorflow-io
+numpy
+pydub
+python-multipart
+ffmpeg-python
