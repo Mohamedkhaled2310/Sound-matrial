@@ -3,7 +3,6 @@ import tempfile
 import numpy as np
 import tensorflow as tf
 import tensorflow_hub as hub
-import tensorflow_io as tfio
 from pydub import AudioSegment
 
 from fastapi import FastAPI, File, UploadFile
@@ -36,12 +35,18 @@ def startup():
 
 def load_audio(file_path: str) -> tf.Tensor:
     audio_binary = tf.io.read_file(file_path)
-    audio, sample_rate = tf.audio.decode_wav(audio_binary, desired_channels=1)
+    audio, _ = tf.audio.decode_wav(audio_binary, desired_channels=1)
     audio = tf.squeeze(audio, axis=-1)
 
-    sr = int(sample_rate.numpy())
-    if sr != 16000:
-        audio = tfio.audio.resample(audio, rate_in=sr, rate_out=16000)
+    # (اختياري) pad لو الصوت قصير جدًا (مثلاً أقل من 1 ثانية)
+    min_len = 16000
+    audio_len = tf.shape(audio)[0]
+    audio = tf.cond(
+        audio_len < min_len,
+        lambda: tf.pad(audio, [[0, min_len - audio_len]]),
+        lambda: audio
+    )
+
     return audio
 
 
