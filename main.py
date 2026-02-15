@@ -17,11 +17,6 @@ app = FastAPI()
 yamnet_model = None
 model = None
 
-@app.on_event("startup")
-def startup():
-    global yamnet_model, model
-    yamnet_model = hub.load("https://tfhub.dev/google/yamnet/1")
-    model = tf.keras.models.load_model(MODEL_PATH)
 
 def convert_to_wav_16bit(input_path: str) -> str:
     sound = AudioSegment.from_file(input_path)
@@ -30,6 +25,14 @@ def convert_to_wav_16bit(input_path: str) -> str:
         temp_wav.name, format="wav"
     )
     return temp_wav.name
+
+
+@app.on_event("startup")
+def startup():
+    global yamnet_model, model
+    yamnet_model = hub.load("https://tfhub.dev/google/yamnet/1")
+    model = tf.keras.models.load_model(MODEL_PATH)
+
 
 def load_audio(file_path: str) -> tf.Tensor:
     audio_binary = tf.io.read_file(file_path)
@@ -41,9 +44,11 @@ def load_audio(file_path: str) -> tf.Tensor:
         audio = tfio.audio.resample(audio, rate_in=sr, rate_out=16000)
     return audio
 
+
 def extract_embedding(audio: tf.Tensor) -> tf.Tensor:
-    scores, embeddings, spectrogram = yamnet_model(audio)
+    _, embeddings, _ = yamnet_model(audio)
     return tf.reduce_mean(embeddings, axis=0)
+
 
 def predict_material(file_path: str):
     audio = load_audio(file_path)
@@ -55,9 +60,11 @@ def predict_material(file_path: str):
     pred_probs = {CLASS_NAMES[i]: float(preds[i]) for i in range(len(CLASS_NAMES))}
     return pred_class, pred_probs
 
+
 @app.get("/")
 def health():
     return {"status": "ok"}
+
 
 @app.post("/predict-audio/")
 async def predict_audio(file: UploadFile = File(...)):
