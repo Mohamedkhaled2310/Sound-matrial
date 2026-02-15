@@ -9,10 +9,8 @@ from pydub import AudioSegment
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
 
-# ---------- Config ----------
 CLASS_NAMES = ["glass", "metal", "paper", "plastic"]
 
-# ./models/material_sound_model_v2.h5
 MODEL_PATH = os.environ.get("MODEL_PATH", "models/material_sound_model_v2.h5")
 
 # ---------- Load models once on startup ----------
@@ -24,63 +22,63 @@ app = FastAPI()
 
 def convert_to_wav_16bit(input_path: str) -> str:
     sound = AudioSegment.from_file(input_path)
-        temp_wav = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-            sound.set_frame_rate(16000).set_channels(1).set_sample_width(2).export(
-                    temp_wav.name, format="wav"
-                        )
-                            return temp_wav.name
+    temp_wav = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+    sound.set_frame_rate(16000).set_channels(1).set_sample_width(2).export(
+        temp_wav.name, format="wav"
+    )
+    return temp_wav.name
 
 
-                            def load_audio(file_path: str) -> tf.Tensor:
-                                audio_binary = tf.io.read_file(file_path)
-                                    audio, sample_rate = tf.audio.decode_wav(audio_binary, desired_channels=1)
-                                        audio = tf.squeeze(audio, axis=-1)
+def load_audio(file_path: str) -> tf.Tensor:
+    audio_binary = tf.io.read_file(file_path)
+    audio, sample_rate = tf.audio.decode_wav(audio_binary, desired_channels=1)
+    audio = tf.squeeze(audio, axis=-1)
 
-                                            # sample_rate is a tensor; compare safely
-                                                sr = int(sample_rate.numpy())
-                                                    if sr != 16000:
-                                                            audio = tfio.audio.resample(audio, rate_in=sr, rate_out=16000)
-                                                                return audio
-
-
-                                        def extract_embedding(audio: tf.Tensor) -> tf.Tensor:
-                                                                    scores, embeddings, spectrogram = yamnet_model(audio)
-                                                                        return tf.reduce_mean(embeddings, axis=0)
+    # sample_rate is a tensor; compare safely
+    sr = int(sample_rate.numpy())
+    if sr != 16000:
+        audio = tfio.audio.resample(audio, rate_in=sr, rate_out=16000)
+    return audio
 
 
-                                                                        def predict_material(file_path: str):
-                                                                            audio = load_audio(file_path)
-                                                                                embedding = extract_embedding(audio)
-                                                                                    embedding = tf.expand_dims(embedding, axis=0)
-
-                                                                                        preds = model.predict(embedding, verbose=0)[0]
-                                                                                            pred_class = CLASS_NAMES[int(np.argmax(preds))]
-                                                                                                pred_probs = {CLASS_NAMES[i]: float(preds[i]) for i in range(len(CLASS_NAMES))}
-                                                                                                    return pred_class, pred_probs
+def extract_embedding(audio: tf.Tensor) -> tf.Tensor:
+    scores, embeddings, spectrogram = yamnet_model(audio)
+    return tf.reduce_mean(embeddings, axis=0)
 
 
-                                                                                                    @app.get("/")
-                                                                                                    def health():
-                                                                                                        return {"status": "ok"}
+def predict_material(file_path: str):
+    audio = load_audio(file_path)
+    embedding = extract_embedding(audio)
+    embedding = tf.expand_dims(embedding, axis=0)
+
+    preds = model.predict(embedding, verbose=0)[0]
+    pred_class = CLASS_NAMES[int(np.argmax(preds))]
+    pred_probs = {CLASS_NAMES[i]: float(preds[i]) for i in range(len(CLASS_NAMES))}
+    return pred_class, pred_probs
 
 
-                                                                                                        @app.post("/predict-audio/")
-                                                                                                        async def predict_audio(file: UploadFile = File(...)):
-                                                                                                            # save upload
-                                                                                                                with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file.filename}") as tmp:
-                                                                                                                        tmp.write(await file.read())
-                                                                                                                                tmp_path = tmp.name
+@app.get("/")
+def health():
+    return {"status": "ok"}
 
-                                                                                                                                    safe_wav = None
-                                                                                                                                        try:
-                                                                                                                                                safe_wav = convert_to_wav_16bit(tmp_path)
-                                                                                                                                                        pred_class, pred_probs = predict_material(safe_wav)
-                                                                                                                                                                return JSONResponse({"predicted_class": pred_class, "probabilities": pred_probs})
-                                                                                                                                                                    finally:
-                                                                                                                                                                            # cleanup temp files
-                                                                                                                                                                                    for p in [tmp_path, safe_wav]:
-                                                                                                                                                                                                if p and os.path.exists(p):
-                                                                                                                                                                                                                try:
-                                                                                                                                                                                                                                    os.remove(p)
-                                                                                                                                                                                                                                                    except:
-                                                                                                                                                                                                                                                                        pass
+
+@app.post("/predict-audio/")
+async def predict_audio(file: UploadFile = File(...)):
+    # save upload
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file.filename}") as tmp:
+        tmp.write(await file.read())
+        tmp_path = tmp.name
+
+    safe_wav = None
+    try:
+        safe_wav = convert_to_wav_16bit(tmp_path)
+        pred_class, pred_probs = predict_material(safe_wav)
+        return JSONResponse({"predicted_class": pred_class, "probabilities": pred_probs})
+    finally:
+        # cleanup temp files
+        for p in [tmp_path, safe_wav]:
+            if p and os.path.exists(p):
+                try:
+                    os.remove(p)
+                except:
+                    pass
