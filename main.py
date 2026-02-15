@@ -10,15 +10,18 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
 
 CLASS_NAMES = ["glass", "metal", "paper", "plastic"]
-
 MODEL_PATH = os.environ.get("MODEL_PATH", "./material_sound_model_v2.h5")
-
-# ---------- Load models once on startup ----------
-yamnet_model = hub.load("https://tfhub.dev/google/yamnet/1")
-model = tf.keras.models.load_model(MODEL_PATH)
 
 app = FastAPI()
 
+yamnet_model = None
+model = None
+
+@app.on_event("startup")
+def startup():
+    global yamnet_model, model
+    yamnet_model = hub.load("https://tfhub.dev/google/yamnet/1")
+    model = tf.keras.models.load_model(MODEL_PATH)
 
 def convert_to_wav_16bit(input_path: str) -> str:
     sound = AudioSegment.from_file(input_path)
@@ -28,23 +31,19 @@ def convert_to_wav_16bit(input_path: str) -> str:
     )
     return temp_wav.name
 
-
 def load_audio(file_path: str) -> tf.Tensor:
     audio_binary = tf.io.read_file(file_path)
     audio, sample_rate = tf.audio.decode_wav(audio_binary, desired_channels=1)
     audio = tf.squeeze(audio, axis=-1)
 
-    # sample_rate is a tensor; compare safely
     sr = int(sample_rate.numpy())
     if sr != 16000:
         audio = tfio.audio.resample(audio, rate_in=sr, rate_out=16000)
     return audio
 
-
 def extract_embedding(audio: tf.Tensor) -> tf.Tensor:
     scores, embeddings, spectrogram = yamnet_model(audio)
     return tf.reduce_mean(embeddings, axis=0)
-
 
 def predict_material(file_path: str):
     audio = load_audio(file_path)
@@ -56,15 +55,12 @@ def predict_material(file_path: str):
     pred_probs = {CLASS_NAMES[i]: float(preds[i]) for i in range(len(CLASS_NAMES))}
     return pred_class, pred_probs
 
-
 @app.get("/")
 def health():
     return {"status": "ok"}
 
-
 @app.post("/predict-audio/")
 async def predict_audio(file: UploadFile = File(...)):
-    # save upload
     with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file.filename}") as tmp:
         tmp.write(await file.read())
         tmp_path = tmp.name
@@ -75,7 +71,6 @@ async def predict_audio(file: UploadFile = File(...)):
         pred_class, pred_probs = predict_material(safe_wav)
         return JSONResponse({"predicted_class": pred_class, "probabilities": pred_probs})
     finally:
-        # cleanup temp files
         for p in [tmp_path, safe_wav]:
             if p and os.path.exists(p):
                 try:
