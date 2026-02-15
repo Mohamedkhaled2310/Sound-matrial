@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 
 CLASS_NAMES = ["glass", "metal", "paper", "plastic"]
 
-MODEL_PATH = os.environ.get("MODEL_PATH", "models/material_sound_model_v2.h5")
+MODEL_PATH = os.environ.get("MODEL_PATH", "./material_sound_model_v2.h5")
 
 # ---------- Load models once on startup ----------
 yamnet_model = hub.load("https://tfhub.dev/google/yamnet/1")
